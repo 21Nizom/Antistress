@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Eternal Bond</title>
     <style>
-        * { box-sizing: border-box; }
+        * { 
+            box-sizing: border-box; 
+            -webkit-touch-callout: none; /* Запрет системных меню */
+            -webkit-user-select: none;   /* Запрет выделения текста */
+            user-select: none; 
+            outline: none;
+        }
+        
         body {
             margin: 0; height: 100vh; overflow: hidden; touch-action: none;
             background: #000; font-family: 'Verdana', sans-serif;
@@ -30,13 +37,14 @@
         #secret-word {
             position: absolute; color: #fff; font-size: 35px; font-weight: 900; 
             opacity: 0; filter: blur(10px); transition: opacity 0.3s, filter 0.3s;
-            pointer-events: none; z-index: 110; text-transform: uppercase; text-shadow: 0 0 20px rgba(255,255,255,0.5);
+            pointer-events: none; z-index: 110; text-transform: uppercase; 
+            text-shadow: 0 0 20px rgba(255,255,255,0.8);
         }
 
         canvas { position: absolute; top: 0; left: 0; z-index: 10; pointer-events: none; }
     </style>
 </head>
-<body class="mode-0">
+<body class="mode-0" oncontextmenu="return false;">
 
     <div class="ui-container"><div class="ui-text" id="ui">Traveling</div></div>
     <div id="secret-word">BEST FRIEND</div>
@@ -49,7 +57,7 @@
         const secretWord = document.getElementById('secret-word');
         
         let width, height, particles = [];
-        let mouse = { x: -1000, y: -1000, active: false, speed: 0 };
+        let mouse = { x: -1000, y: -1000, active: false, lastX: 0, lastY: 0, speed: 0 };
         let currentMode = 0;
         let isGlitching = false;
         let secretIndex = 0;
@@ -69,14 +77,16 @@
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
         function playSound(freq, glitch = false) {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = glitch ? 'sawtooth' : 'sine';
-            osc.frequency.setValueAtTime(glitch ? 50 : freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + (glitch ? 0.3 : 1));
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + 1);
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = glitch ? 'sawtooth' : 'sine';
+                osc.frequency.setValueAtTime(glitch ? 50 : freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + (glitch ? 0.3 : 1));
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + 1);
+            } catch(e) {}
         }
 
         class Particle {
@@ -96,25 +106,21 @@
                     let dx = mouse.x - this.x;
                     let dy = mouse.y - this.y;
                     let dist = Math.sqrt(dx*dx + dy*dy);
-                    let force = isGlitching ? 0.8 : 0.05;
+                    let force = isGlitching ? 1.0 : 0.05;
                     
                     if (dist < 300) {
                         this.vx += dx * (isGlitching ? -force : force);
                         this.vy += dy * (isGlitching ? -force : force);
                     }
                 } else {
-                    // Плавный дрейф к центру (но не застревание)
-                    let dx = (width/2 + Math.cos(this.angle) * 100) - this.x;
-                    let dy = (height/2 + Math.sin(this.angle) * 100) - this.y;
+                    let dx = (width/2 + Math.cos(this.angle) * 120) - this.x;
+                    let dy = (height/2 + Math.sin(this.angle) * 120) - this.y;
                     this.vx += dx * 0.002;
                     this.vy += dy * 0.002;
                     this.angle += 0.01;
                 }
-
-                this.x += this.vx;
-                this.y += this.vy;
-                this.vx *= 0.96;
-                this.vy *= 0.96;
+                this.x += this.vx; this.y += this.vy;
+                this.vx *= 0.95; this.vy *= 0.95;
 
                 if (this.x < 0 || this.x > width) this.vx *= -1;
                 if (this.y < 0 || this.y > height) this.vy *= -1;
@@ -125,7 +131,7 @@
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = ctx.fillStyle;
                 ctx.beginPath();
-                ctx.arc(this.x, this.y, isGlitching ? this.size * 2 : this.size, 0, Math.PI * 2);
+                ctx.arc(this.x, this.y, isGlitching ? this.size * 2.5 : this.size, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -141,7 +147,8 @@
             if (audioCtx.state === 'suspended') audioCtx.resume();
             mouse.active = true;
             mouse.x = e.clientX; mouse.y = e.clientY;
-            hasGlitchedInThisSession = false; // Сброс для нового круга
+            mouse.lastX = e.clientX; mouse.lastY = e.clientY;
+            hasGlitchedInThisSession = false;
 
             currentMode = (currentMode + 1) % modes.length;
             document.body.className = 'mode-' + currentMode;
@@ -157,31 +164,36 @@
         });
 
         window.addEventListener('pointermove', (e) => {
-            let dx = e.clientX - mouse.x;
-            let dy = e.clientY - mouse.y;
+            if (!mouse.active) return;
+            
+            let dx = e.clientX - mouse.lastX;
+            let dy = e.clientY - mouse.lastY;
             mouse.speed = Math.sqrt(dx*dx + dy*dy);
+            
             mouse.x = e.clientX; mouse.y = e.clientY;
+            mouse.lastX = e.clientX; mouse.lastY = e.clientY;
 
-            if (mouse.speed > 80 && mouse.active && !hasGlitchedInThisSession) {
+            // Чувствительность глитча (снижена до 60 для уверенного срабатывания)
+            if (mouse.speed > 60 && !hasGlitchedInThisSession) {
                 isGlitching = true;
-                hasGlitchedInThisSession = true; // Только одно слово за один "зажим"
+                hasGlitchedInThisSession = true;
                 document.body.classList.add('glitch-active');
                 
                 secretWord.innerText = secrets[secretIndex];
-                secretIndex = (secretIndex + 1) % secrets.length; // Переход к следующему
+                secretIndex = (secretIndex + 1) % secrets.length;
                 
                 secretWord.style.opacity = 1;
                 secretWord.style.filter = "blur(0px)";
                 secretWord.style.left = (width/2 - secretWord.offsetWidth/2) + 'px';
-                secretWord.style.top = (height/2 - 20) + 'px';
+                secretWord.style.top = (height/2 - 25) + 'px';
 
                 playSound(40, true);
-                if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+                if (navigator.vibrate) navigator.vibrate([40, 40]);
             }
         });
 
         function loop() {
-            ctx.clearRect(0, 0, width, height); // Полная очистка для честных фонов
+            ctx.clearRect(0, 0, width, height);
             particles.forEach(p => { p.update(); p.draw(); });
             requestAnimationFrame(loop);
         }
